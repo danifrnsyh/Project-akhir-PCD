@@ -1,9 +1,13 @@
 import cv2
+import dlib
 import time
+import math
+from imutils import face_utils
 
-face_cascade = cv2.CascadeClassifier(
-    cv2.data.haarcascades +
-    'haarcascade_frontalface_default.xml'
+detector = dlib.get_frontal_face_detector()
+
+predictor = dlib.shape_predictor(
+    "shape_predictor_68_face_landmarks.dat"
 )
 
 kamera_masuk = cv2.VideoCapture(0)
@@ -14,10 +18,17 @@ if not kamera_keluar.isOpened():
 
 jumlah_orang = 0
 
-last_detect_masuk = 0
-last_detect_keluar = 0
+tracked_masuk = []
+tracked_keluar = []
 
-cooldown = 3
+jarak_maksimal = 80
+
+def euclidean(p1, p2):
+
+    return math.sqrt(
+        (p1[0] - p2[0]) ** 2 +
+        (p1[1] - p2[1]) ** 2
+    )
 
 while True:
 
@@ -30,8 +41,15 @@ while True:
     if not ret2:
         frame_keluar = frame_masuk.copy()
 
-    frame_masuk = cv2.resize(frame_masuk, (640, 480))
-    frame_keluar = cv2.resize(frame_keluar, (640, 480))
+    frame_masuk = cv2.resize(
+        frame_masuk,
+        (640, 480)
+    )
+
+    frame_keluar = cv2.resize(
+        frame_keluar,
+        (640, 480)
+    )
 
     gray_masuk = cv2.cvtColor(
         frame_masuk,
@@ -43,94 +61,214 @@ while True:
         cv2.COLOR_BGR2GRAY
     )
 
-    wajah_masuk = face_cascade.detectMultiScale(
-        gray_masuk,
-        scaleFactor=1.3,
-        minNeighbors=5,
-        minSize=(30, 30)
+    garis_y = 240
+
+    cv2.line(
+        frame_masuk,
+        (0, garis_y),
+        (640, garis_y),
+        (0,255,0),
+        2
     )
 
-    for (x, y, w, h) in wajah_masuk:
+    cv2.line(
+        frame_keluar,
+        (0, garis_y),
+        (640, garis_y),
+        (255,255,0),
+        2
+    )
+
+    wajah_masuk = detector(gray_masuk)
+
+    current_masuk = []
+
+    for face in wajah_masuk:
+
+        x1 = face.left()
+        y1 = face.top()
+        x2 = face.right()
+        y2 = face.bottom()
+
+        center_x = int((x1 + x2) / 2)
+        center_y = int((y1 + y2) / 2)
+
+        current_masuk.append(
+            (center_x, center_y)
+        )
 
         cv2.rectangle(
             frame_masuk,
-            (x, y),
-            (x+w, y+h),
+            (x1, y1),
+            (x2, y2),
             (0,255,0),
             2
+        )
+
+        shape = predictor(
+            gray_masuk,
+            face
+        )
+
+        shape = face_utils.shape_to_np(shape)
+
+        for (x, y) in shape:
+
+            cv2.circle(
+                frame_masuk,
+                (x, y),
+                1,
+                (0,0,255),
+                -1
+            )
+
+        cv2.circle(
+            frame_masuk,
+            (center_x, center_y),
+            4,
+            (255,0,0),
+            -1
         )
 
         cv2.putText(
             frame_masuk,
             "MASUK",
-            (x, y-10),
+            (x1, y1 - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (0,255,0),
             2
         )
 
-        now = time.time()
+        sudah_terdeteksi = False
 
-        if now - last_detect_masuk > cooldown:
+        for titik in tracked_masuk:
 
-            jumlah_orang += 1
-            last_detect_masuk = now
+            jarak = euclidean(
+                titik,
+                (center_x, center_y)
+            )
 
-    wajah_keluar = face_cascade.detectMultiScale(
-        gray_keluar,
-        scaleFactor=1.3,
-        minNeighbors=5,
-        minSize=(30, 30)
-    )
+            if jarak < jarak_maksimal:
+                sudah_terdeteksi = True
+                break
 
-    for (x, y, w, h) in wajah_keluar:
+        if not sudah_terdeteksi:
+
+            if center_y > garis_y:
+
+                jumlah_orang += 1
+
+                tracked_masuk.append(
+                    (center_x, center_y)
+                )
+
+    wajah_keluar = detector(gray_keluar)
+
+    current_keluar = []
+
+    for face in wajah_keluar:
+
+        x1 = face.left()
+        y1 = face.top()
+        x2 = face.right()
+        y2 = face.bottom()
+
+        center_x = int((x1 + x2) / 2)
+        center_y = int((y1 + y2) / 2)
+
+        current_keluar.append(
+            (center_x, center_y)
+        )
 
         cv2.rectangle(
             frame_keluar,
-            (x, y),
-            (x+w, y+h),
+            (x1, y1),
+            (x2, y2),
             (255,255,0),
             2
+        )
+
+        shape = predictor(
+            gray_keluar,
+            face
+        )
+
+        shape = face_utils.shape_to_np(shape)
+
+        for (x, y) in shape:
+
+            cv2.circle(
+                frame_keluar,
+                (x, y),
+                1,
+                (255,0,0),
+                -1
+            )
+
+        cv2.circle(
+            frame_keluar,
+            (center_x, center_y),
+            4,
+            (0,255,255),
+            -1
         )
 
         cv2.putText(
             frame_keluar,
             "KELUAR",
-            (x, y-10),
+            (x1, y1 - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (255,255,0),
             2
         )
 
-        now = time.time()
+        sudah_terdeteksi = False
 
-        if now - last_detect_keluar > cooldown:
+        for titik in tracked_keluar:
 
-            jumlah_orang -= 1
+            jarak = euclidean(
+                titik,
+                (center_x, center_y)
+            )
 
-            if jumlah_orang < 0:
-                jumlah_orang = 0
+            if jarak < jarak_maksimal:
+                sudah_terdeteksi = True
+                break
 
-            last_detect_keluar = now
+        if not sudah_terdeteksi:
+
+            if center_y > garis_y:
+
+                jumlah_orang -= 1
+
+                if jumlah_orang < 0:
+                    jumlah_orang = 0
+
+                tracked_keluar.append(
+                    (center_x, center_y)
+                )
+
+    tracked_masuk = current_masuk
+    tracked_keluar = current_keluar
 
     cv2.putText(
         frame_masuk,
-        f"TOTAL DALAM RUANGAN : {jumlah_orang}",
+        f"TOTAL ORANG : {jumlah_orang}",
         (20,40),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
+        0.9,
         (0,0,255),
         2
     )
 
     cv2.putText(
         frame_keluar,
-        f"TOTAL DALAM RUANGAN : {jumlah_orang}",
+        f"TOTAL ORANG : {jumlah_orang}",
         (20,40),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
+        0.9,
         (0,0,255),
         2
     )
